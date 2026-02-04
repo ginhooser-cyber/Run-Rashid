@@ -1,16 +1,19 @@
 import React, { useRef, useMemo, useImperativeHandle, forwardRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { COLORS } from '../constants';
+import { COLORS } from './constants';
 
 // --- Types ---
 export interface EffectsHandle {
   spawnPearlBurst: (position: THREE.Vector3) => void;
   spawnDust: (position: THREE.Vector3) => void;
+  spawnDiveSplash: (position: THREE.Vector3) => void;
+  spawnSurfaceSplash: (position: THREE.Vector3) => void;
 }
 
 const PARTICLE_COUNT = 50;
 const DUST_COUNT = 20;
+const SPLASH_COUNT = 40;
 
 const Effects = forwardRef<EffectsHandle>((_, ref) => {
   // --- Pearl Burst System ---
@@ -29,6 +32,18 @@ const Effects = forwardRef<EffectsHandle>((_, ref) => {
   const dustMeshRef = useRef<THREE.InstancedMesh>(null);
   const dustParticles = useMemo(() => {
     return new Array(DUST_COUNT).fill(0).map(() => ({
+      position: new THREE.Vector3(),
+      velocity: new THREE.Vector3(),
+      life: 0,
+      active: false,
+      scale: 0
+    }));
+  }, []);
+
+  // --- Water Splash System ---
+  const splashMeshRef = useRef<THREE.InstancedMesh>(null);
+  const splashParticles = useMemo(() => {
+    return new Array(SPLASH_COUNT).fill(0).map(() => ({
       position: new THREE.Vector3(),
       velocity: new THREE.Vector3(),
       life: 0,
@@ -68,6 +83,56 @@ const Effects = forwardRef<EffectsHandle>((_, ref) => {
             (Math.random() - 0.5) * 2,
             Math.random() * 2,
             (Math.random() - 0.5) * 2
+          );
+          spawned++;
+        }
+      }
+    },
+    spawnDiveSplash: (pos: THREE.Vector3) => {
+      // Spawn water splash particles - droplets shooting up and outward
+      let spawned = 0;
+      for (let i = 0; i < SPLASH_COUNT; i++) {
+        if (!splashParticles[i].active && spawned < 35) {
+          splashParticles[i].active = true;
+          splashParticles[i].life = 1.5; // Longer life for dramatic effect
+          splashParticles[i].position.set(
+            pos.x + (Math.random() - 0.5) * 2,
+            pos.y,
+            pos.z + (Math.random() - 0.5) * 2
+          );
+          // Splash upward and outward in a cone shape
+          const angle = Math.random() * Math.PI * 2;
+          const upwardForce = 8 + Math.random() * 6; // Strong upward
+          const outwardForce = 2 + Math.random() * 4;
+          splashParticles[i].velocity.set(
+            Math.cos(angle) * outwardForce,
+            upwardForce,
+            Math.sin(angle) * outwardForce
+          );
+          spawned++;
+        }
+      }
+    },
+    spawnSurfaceSplash: (pos: THREE.Vector3) => {
+      // Spawn water splash particles for surfacing - dramatic upward burst
+      let spawned = 0;
+      for (let i = 0; i < SPLASH_COUNT; i++) {
+        if (!splashParticles[i].active && spawned < 40) {
+          splashParticles[i].active = true;
+          splashParticles[i].life = 2.0; // Extra long for dramatic surfacing
+          splashParticles[i].position.set(
+            pos.x + (Math.random() - 0.5) * 3,
+            pos.y - 1, // Start below water surface
+            pos.z + (Math.random() - 0.5) * 3
+          );
+          // Burst upward and cascade outward like breaking through water surface
+          const angle = Math.random() * Math.PI * 2;
+          const upwardForce = 10 + Math.random() * 8; // Strong upward burst
+          const outwardForce = 3 + Math.random() * 5;
+          splashParticles[i].velocity.set(
+            Math.cos(angle) * outwardForce,
+            upwardForce,
+            Math.sin(angle) * outwardForce
           );
           spawned++;
         }
@@ -127,7 +192,34 @@ const Effects = forwardRef<EffectsHandle>((_, ref) => {
           }
         });
         dustMeshRef.current.instanceMatrix.needsUpdate = true;
-      }
+    }
+
+    // Update Water Splash Particles
+    if (splashMeshRef.current) {
+        splashParticles.forEach((p, i) => {
+          if (p.active) {
+            p.life -= delta * 1.0; // Slower fade for dramatic splash
+            p.velocity.y -= delta * 12; // Gravity pulls droplets down
+            p.position.addScaledVector(p.velocity, delta);
+            // Scale based on life - start big, shrink
+            const scale = Math.max(0, p.life * 0.5);
+  
+            if (p.life <= 0 || p.position.y < -2) {
+              p.active = false;
+            }
+  
+            dummy.position.copy(p.position);
+            dummy.scale.setScalar(scale);
+            dummy.updateMatrix();
+            splashMeshRef.current!.setMatrixAt(i, dummy.matrix);
+          } else {
+            dummy.scale.setScalar(0);
+            dummy.updateMatrix();
+            splashMeshRef.current!.setMatrixAt(i, dummy.matrix);
+          }
+        });
+        splashMeshRef.current.instanceMatrix.needsUpdate = true;
+    }
   });
 
   return (
@@ -141,7 +233,13 @@ const Effects = forwardRef<EffectsHandle>((_, ref) => {
       {/* Dust: Sand clouds */}
       <instancedMesh ref={dustMeshRef} args={[undefined, undefined, DUST_COUNT]}>
         <dodecahedronGeometry args={[0.3, 0]} />
-        <meshStandardMaterial color={COLORS.sand} transparent opacity={0.6} />
+        <meshBasicMaterial color={COLORS.sand} transparent opacity={0.6} />
+      </instancedMesh>
+
+      {/* Water Splash: Blue-white droplets */}
+      <instancedMesh ref={splashMeshRef} args={[undefined, undefined, SPLASH_COUNT]}>
+        <sphereGeometry args={[0.15, 6, 6]} />
+        <meshBasicMaterial color="#87CEEB" transparent opacity={0.8} toneMapped={false} />
       </instancedMesh>
     </group>
   );
